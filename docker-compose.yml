@@ -7,14 +7,15 @@ services:
     depends_on: 
       - redis
       - db
-    ports:
-      - "80:80"
     volumes: 
       - ./conf/pretalx.cfg:/etc/pretalx/pretalx.cfg:ro
       - pretalx-data:/data
     labels:
-       traefik.docker.network: "pretalxdocker"
-       traefik.enable: "true"
+      - traefik.enable=true
+      - traefik.http.routers.fahrplan.middlewares=redirectscheme
+      - traefik.http.routers.fahrplan.rule=Host(`${PRETALX_HOST}`)
+      - traefik.http.routers.fahrplan-secure.rule=Host(`${PRETALX_HOST}`)
+      - traefik.http.routers.fahrplan-secure.tls.certresolver=default
 
 
   db:
@@ -36,8 +37,41 @@ services:
     volumes: 
       - pretalx-redis:/data
 
+  traefik:
+    image: traefik:v2.0
+    container_name: traefik
+    command:
+      - --api=true
+      - --certificatesResolvers.default.acme.email=${ACME_EMAIL}
+      - --certificatesResolvers.default.acme.storage=/etc/traefik/acme/acme.json
+      - --certificatesResolvers.default.acme.httpChallenge.entryPoint=web
+      - --entryPoints.web.address=:80
+      - --entryPoints.web-secure.address=:443
+      - --providers.docker=true
+      - --providers.docker.endpoint=unix:///var/run/docker.sock
+      - --providers.docker.exposedByDefault=false
+    labels:
+      - traefik.enable=true
+      - traefik.http.middlewares.auth.basicauth.users=${AUTH_BASIC}
+      - traefik.http.middlewares.redirectscheme.redirectscheme.scheme=https
+      - traefik.http.routers.api.entrypoints=web
+      - traefik.http.routers.api.middlewares=redirectscheme
+      - traefik.http.routers.api.rule=Host(`${TRAEFIK_HOST}`)
+      - traefik.http.routers.api-secure.entrypoints=web-secure
+      - traefik.http.routers.api-secure.middlewares=auth
+      - traefik.http.routers.api-secure.rule=Host(`${TRAEFIK_HOST}`)
+      - traefik.http.routers.api-secure.service=api@internal
+      - traefik.http.routers.api-secure.tls.certresolver=default
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - acme_data:/etc/traefik/acme/
 
 volumes:
+  acme_data:
   pretalx-db:
   pretalx-data:
   pretalx-redis:
